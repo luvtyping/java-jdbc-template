@@ -10,11 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.util.*;
-import java.util.stream.Collectors;
-
-import static java.util.Collections.emptyList;
-import static java.util.Collections.emptyMap;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Repository
 public class JdbcTemplatePublicAuction implements PublicAuction {
@@ -53,18 +51,29 @@ public class JdbcTemplatePublicAuction implements PublicAuction {
         List<User> userList = jdbcTemplate.query("SELECT * FROM users", userMapper);
         Map<User, Double> map = new HashMap<>();
         for (User user : userList) {
-            Double price = jdbcTemplate.queryForObject("SELECT AVG(start_price) FROM items WHERE user_id=?",
+            Double averagePrice = jdbcTemplate.queryForObject("SELECT AVG(start_price) FROM items WHERE user_id=?",
                     Double.class, user.getUserId());
-            if (price == null)
+            if (averagePrice == null)
                 continue;
-            map.put(user, price);
+            map.put(user, averagePrice);
         }
         return map;
     }
 
     @Override
     public Map<Item, Bid> getMaxBidsForEveryItem() {
-        return emptyMap();
+        List<Item> items = jdbcTemplate.query("SELECT * FROM items", itemMapper);
+        Map<Item, Bid> map = new HashMap<>();
+        for (Item item : items) {
+            List<Bid> bids = jdbcTemplate.query(
+                    "SELECT * FROM bids " +
+                            "WHERE item_id=? AND bid_value=(SELECT MAX(bid_value) FROM bids WHERE item_id=?)",
+                    bidMapper, item.getItemId(), item.getItemId());
+            if (bids.isEmpty())
+                continue;
+            map.put(item, bids.get(0));
+        }
+        return map;
     }
 
     @Override
@@ -96,7 +105,7 @@ public class JdbcTemplatePublicAuction implements PublicAuction {
 
     @Override
     public boolean createBid(Bid bid) {
-        int update = jdbcTemplate.update("INSERT INTO users VALUES(?,?,?,?,?)",
+        int update = jdbcTemplate.update("INSERT INTO bids VALUES(?,?,?,?,?)",
                 bid.getBidId(),
                 bid.getBidDate(),
                 bid.getBidValue(),
@@ -108,8 +117,7 @@ public class JdbcTemplatePublicAuction implements PublicAuction {
 
     @Override
     public boolean deleteUserBids(long id) {
-        int update = jdbcTemplate.update("DELETE FROM bids WHERE user_id=?",
-                id);
+        int update = jdbcTemplate.update("DELETE FROM bids WHERE user_id=?", id);
         return update != 0;
     }
 
@@ -117,10 +125,5 @@ public class JdbcTemplatePublicAuction implements PublicAuction {
     public boolean doubleItemsStartPrice(long id) {
         int update = jdbcTemplate.update("UPDATE items SET start_price=(start_price*2) WHERE user_id=?", id);
         return update != 0;
-    }
-
-    @Override
-    public List<Bid> getUserActualBids(long id) {
-        return jdbcTemplate.query("SELECT COUNT(item_id) FROM items WHERE id IN (SELECT id FROM users WHERE user_id=?)", bidMapper, id);
     }
 }
